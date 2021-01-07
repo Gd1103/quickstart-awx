@@ -41,12 +41,9 @@ Parameters:
   AWXVersion:
     Description: Which version of AWX to use
     Type: String
-    Default: 6.1.0
+    Default: 16.0.0
     AllowedValues:
-      - 4.0.0
-      - 5.0.0
-      - 6.0.0
-      - 6.1.0
+      - 16.0.0
   AWXGitHubRepo:
     Description: Which github should we use as the source for the build
     Type: String
@@ -203,52 +200,58 @@ Resources:
                 - sed -i "s/^dockerhub_version=latest/dockerhub_version=$AWS_VERSION/g" inventory
                 - echo ansible-playbook -i inventory -e awx_version="$AWX_VERSION" -e pg_hostname="$pg_hostname" -e pg_username="$pg_username" -e pg_password="$pg_password" -e pg_database="awx" -e pg_port=5432 -e default_admin_user="$awx_username" -e default_admin_password="$awx_password" -e admin_user="$awx_username" -e admin_password="$awx_password" install.yml
                 - ansible-playbook -v -i inventory -e awx_version="$AWX_VERSION" -e pg_hostname="$pg_hostname" -e pg_username="$pg_username" -e pg_password="$pg_password" -e pg_database="awx" -e pg_port=5432 -e default_admin_user="$awx_username" -e default_admin_password="$awx_password" -e admin_user="$awx_username" -e admin_password="$awx_password" install.yml
-                # Allow time for the DB Setup Scripts to complete              
+                # Allow time for the DB Setup Scripts to complete
                 - sleep 240
                 # Get container tagging info
                 - export ACCOUNT_ID=$(echo ${CODEBUILD_BUILD_ARN} | awk -F':' '{print $5}')
-                - export RABBITMQ_TAG=$(docker image ls --all | grep rabbitmq | awk '{print $2}' | cut -d ':' -f 2)
-                - export RABBITMQ_IMAGE=$(docker image ls --all | grep rabbitmq | awk '{print $1}')
-                - export MEMCACHED_TAG=$(docker image ls --all | grep memcached | awk '{print $2}' | cut -d ':' -f 2)
-                - export MEMCACHED_IMAGE=$(docker image ls --all | grep memcached | awk '{print $1}')
+                - export RABBITMQ_TAG=$(docker image ls --all | grep redis | awk '{print $2}' | cut -d ':' -f 2)
+                - export RABBITMQ_IMAGE=$(docker image ls --all | grep redis | awk '{print $1}')
+                - export MEMCACHED_TAG=$(docker image ls --all | grep awx | awk '{print $2}' | cut -d ':' -f 2)
+                - export MEMCACHED_IMAGE=$(docker image ls --all | grep awx | awk '{print $1}')
                 # Make a Sidecar container to inject created files for mounting
                 - mkdir sidecar
                 - mkdir sidecar/tmp
                 - cp -drpu /tmp/awxcompose/ sidecar/tmp/
                 - echo "changes"
-                - echo "FROM ansible/awx_web:${AWX_VERSION}" > sidecar/Dockerfile
+                - echo "FROM ansible/awx:${AWX_VERSION}" > sidecar/Dockerfile
                 - echo "VOLUME /etc/tower/" >> sidecar/Dockerfile
                 - echo "COPY --chown=1000 /tmp/awxcompose/credentials.py /etc/tower/conf.d/credentials.py" >> sidecar/Dockerfile
                 - echo "COPY --chown=1000 /tmp/awxcompose/SECRET_KEY /etc/tower/SECRET_KEY" >> sidecar/Dockerfile
                 - echo "COPY --chown=1000 /tmp/awxcompose/environment.sh /etc/tower/conf.d/environment.sh" >> sidecar/Dockerfile
-                - | 
+                - echo "COPY --chown=1000 /tmp/awxcompose/redis.conf /usr/local/etc/redis/redis.conf" >> sidecar/Dockerfile
+                - echo "COPY --chown=1000 /tmp/awxcompose/nginx.conf /etc/nginx/nginx.conf" >> sidecar/Dockerfile
+                - |
                   echo 'CMD exec /bin/bash -c "trap : TERM INT; sleep infinity & wait"' >> sidecar/Dockerfile
                 - docker build -t sidecar:${AWX_VERSION} sidecar
-                # Debug info 
+                - mkdir rediscar
+                - mkdir rediscar/tmp
+                - cp -drpu /tmp/awxcompose/ rediscar/tmp/
+                - echo "changes"
+                - echo "FROM redis" > rediscar/Dockerfile
+                - echo "COPY --chown=1000 /tmp/awxcompose/redis.conf /usr/local/etc/redis/redis.conf" >> rediscar/Dockerfile
+                - |
+                  echo 'CMD exec /bin/bash -c "trap : TERM INT; sleep infinity & wait"' >> rediscar/Dockerfile
+                - docker build -t rediscar:${AWX_VERSION} rediscar
+                # Debug info
                 # Contextual info for other debug data
                 - docker container ls --all
                 - docker image ls --all
-                # Full logs of each container 
+                # Full logs of each container
                 #- for i in $(docker ps -q); do docker logs $i; done
-                # Docker inspect 
+                # Docker inspect
                 #- for i in $(docker ps -q); do echo "CONTAINER $i\\n========="; docker inspect $i; echo "========="; done
-                
+
                 # Push containers to their respective repositories
                 - >
-                  docker tag ansible/awx_task:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_TASK_REPO}:${AWX_VERSION} &&
+                  docker tag ansible/awx:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_TASK_REPO}:${AWX_VERSION} &&
                   docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_TASK_REPO}:${AWX_VERSION}
-                - >
-                  docker tag ansible/awx_web:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_WEB_REPO}:${AWX_VERSION} &&
-                  docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_WEB_REPO}:${AWX_VERSION}
-                - >
-                  docker tag ${MEMCACHED_IMAGE}:${MEMCACHED_TAG} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${MEMCACHED_REPO}:${AWX_VERSION} &&
-                  docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${MEMCACHED_REPO}:${AWX_VERSION}
                 - >
                   docker tag ${RABBITMQ_IMAGE}:${RABBITMQ_TAG} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${RABBITMQ_REPO}:${AWX_VERSION} &&
                   docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${RABBITMQ_REPO}:${AWX_VERSION}
                 - >
                   docker tag sidecar:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SIDECAR_REPO}:${AWX_VERSION} &&
                   docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SIDECAR_REPO}:${AWX_VERSION}
+
             post_build:
               commands:
                 # FIXME: Need to trap and only execute this if the Build is passing.
@@ -392,8 +395,8 @@ Resources:
       MemcachedRegistry: !Ref MemcachedRegistry
       RabbitMQRegistry: !Ref  RabbitMQRegistry
       SidecarRegistry: !Ref  SidecarRegistry
-      # cfn_signal_url: is part of the event by default hence missing here 
-      # cfn_stack_id: is part of the event by default 
+      # cfn_signal_url: is part of the event by default hence missing here
+      # cfn_stack_id: is part of the event by default
       # cfn_request_id: also part of the event
       # cfn_logical_resource_id: also part of the event
       # Lambda function passes the above into the build project when invoking StartBuild
@@ -403,7 +406,7 @@ Resources:
     Properties:
       Code:
         S3Bucket: !Ref LambdaZipsBucket
-        S3Key: 
+        S3Key:
           Fn::Join:
             - ""
             - - !Ref QSS3KeyPrefix
@@ -488,7 +491,7 @@ Resources:
       LoadBalancers:
         - ContainerName: awxweb
           ContainerPort: 8052
-          TargetGroupArn: !Ref TargetGroup 
+          TargetGroupArn: !Ref TargetGroup
   ContainerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -555,28 +558,19 @@ Resources:
               Value: !Ref AWXAdminUsername
             - Name: AWX_ADMIN_PASSWORD
               Value: !Ref AWXAdminPassword
-        - Name: rabbitmq
-          Hostname: rabbitmq
+        - Name: redis
+          Hostname: redis
           Essential: true
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RabbitMQRegistry}:${AWXVersion}
           Memory: 1024
           PortMappings:
-            - ContainerPort: 4369
+            - ContainerPort: 6379
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref ContainerLogGroup
               awslogs-region: !Sub ${AWS::Region}
-              awslogs-stream-prefix: rabbitmq
-          Environment:
-            - Name: "RABBITMQ_DEFAULT_VHOST"
-              Value: "awx"
-            - Name: "RABBITMQ_DEFAULT_USER"
-              Value: "guest"
-            - Name: "RABBITMQ_DEFAULT_PASS"
-              Value: "awxpass"
-            - Name: "RABBITMQ_ERLANG_COOKIE"
-              Value: "cookiemonster"
+              awslogs-stream-prefix: redis
         - Name: awx
           Hostname: awx
           Essential: true
@@ -585,8 +579,8 @@ Resources:
           PortMappings:
             - ContainerPort: 8052
           Links:
-            - "rabbitmq:rabbitmq"
-            - "memcached:memcached"
+            - "redis:redis"
+            - "web:web"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -614,37 +608,10 @@ Resources:
               Value: "5432"
             - Name: DATABASE_HOST
               Value: !Ref 'DatabaseEndpoint'
-            - Name: RABBITMQ_USER
-              Value: "guest"
-            - Name: RABBITMQ_PASSWORD
-              Value: "awxpass"
-            - Name: RABBITMQ_HOST
-              Value: "rabbitmq"
-            - Name: RABBITMQ_PORT
-              Value: "5672"
-            - Name: RABBITMQ_VHOST
-              Value: "awx"
-            - Name: MEMCACHED_HOST
-              Value: "memcached"
-            - Name: MEMCACHED_PORT
-              Value: "11211"
             - Name: AWX_ADMIN_USER
               Value: !Ref AWXAdminUsername
             - Name: AWX_ADMIN_PASSWORD
               Value: !Ref AWXAdminPassword
-        - Name: memcached
-          Hostname: memcached
-          Essential: true
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${MemcachedRegistry}:${AWXVersion}
-          Memory: 2048
-          PortMappings:
-            - ContainerPort: 11211
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref ContainerLogGroup
-              awslogs-region: !Sub ${AWS::Region}
-              awslogs-stream-prefix: memcached
         - Name: sidecar
           Hostname: sidecar
           Essential: true
@@ -662,7 +629,7 @@ Resources:
       VpcId: !Ref VPC
       Port: 80
       Protocol: HTTP
-      Matcher: 
+      Matcher:
         HttpCode: 200-499
       HealthCheckIntervalSeconds: 10
       HealthCheckPath: /
@@ -680,7 +647,7 @@ Resources:
         - "/"
       Actions:
       - Type: forward
-        TargetGroupArn: 
+        TargetGroupArn:
           Ref: TargetGroup
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener

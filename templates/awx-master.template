@@ -95,12 +95,9 @@ Parameters:
   AWXVersion:
     Description: Which version of AWX to use
     Type: String
-    Default: 6.1.0
+    Default: 16.0.0
     AllowedValues:
-      - 4.0.0
-      - 5.0.0
-      - 6.0.0
-      - 6.1.0
+      - 16.0.0
   AWXAdminPassword:
     Description: AWX Admin Password. Required
     Type: String
@@ -316,7 +313,7 @@ Parameters:
   MasterUsername:
     Description: Master database Username.
     MinLength: 1
-    MaxLength: 63 
+    MaxLength: 63
     Type: String
 Conditions:
   UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-quickstart']
@@ -324,8 +321,8 @@ Resources:
   VPCStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: 
-        !Sub 
+      TemplateURL:
+        !Sub
           - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}submodules/quickstart-aws-vpc/templates/aws-vpc.template'
           - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
             S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
@@ -343,7 +340,7 @@ Resources:
   WorkloadStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: 
+      TemplateURL:
         !Sub
           - 'https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/awx-workload.template'
           - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
@@ -361,7 +358,7 @@ Resources:
         PublicSubnet1ID: !GetAtt 'VPCStack.Outputs.PublicSubnet1ID'
         PublicSubnet2ID: !GetAtt 'VPCStack.Outputs.PublicSubnet2ID'
         RemoteAccessCIDR: !Ref 'RemoteAccessCIDR'
-        # AWX Related 
+        # AWX Related
         AWXAdminUsername: !Ref 'AWXAdminUsername'
         AWXAdminPassword: !Ref 'AWXAdminPassword'
         AWXVersion: !Ref 'AWXVersion'
