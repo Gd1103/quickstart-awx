@@ -361,10 +361,8 @@ Resources:
         QSS3BucketName: !Ref QSS3BucketName
         QSS3KeyPrefix: !Ref QSS3KeyPrefix
         Cluster: !GetAtt 'InfrastructureStack.Outputs.Cluster'
-        AWXTaskRegistry: !GetAtt 'InfrastructureStack.Outputs.AWXTaskRegistry'
-        AWXWebRegistry: !GetAtt 'InfrastructureStack.Outputs.AWXWebRegistry'
-        RabbitMQRegistry: !GetAtt 'InfrastructureStack.Outputs.RabbitMQRegistry'
-        MemcachedRegistry: !GetAtt 'InfrastructureStack.Outputs.MemcachedRegistry'
+        AWXRegistry: !GetAtt 'InfrastructureStack.Outputs.AWXRegistry'
+        RedisRegistry: !GetAtt 'InfrastructureStack.Outputs.RedisRegistry'
         SidecarRegistry: !GetAtt 'InfrastructureStack.Outputs.SidecarRegistry'
         AWXVersion: !Ref 'AWXVersion'
         AWXGitHubRepo: !Ref 'AWXGitHubRepo'

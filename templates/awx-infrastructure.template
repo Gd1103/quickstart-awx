@@ -11,23 +11,13 @@ Parameters:
       a new ALB
     Type: String
     Default: ''
-  AWXTaskECRRepositoryName:
-    Description: Name of existing awx_task ECR Repository, leave blank to create a
-      new repository
-    Type: String
-    Default: ''
-  AWXWebECRRepositoryName:
+  AWXECRRepositoryName:
     Description: Name of existing awx_web ECR Repository, leave blank to create a
       new repository
     Type: String
     Default: ''
-  AWXRabbitMQECRRepositoryName:
-    Description: Name of existing rabbitmq ECR Repository, leave blank to create a
-      new repository
-    Type: String
-    Default: ''
-  AWXMemcachedECRRepositoryName:
-    Description: Name of existing memcached ECR Repository, leave blank to create
+  AWXRedisECRRepositoryName:
+    Description: Name of existing redis ECR Repository, leave blank to create
       a new repository
     Type: String
     Default: ''
@@ -508,16 +498,12 @@ Conditions:
   CreateECSCluster: !Equals [!Ref 'ECSClusterName', '']
   CreateALB: !Equals [!Ref 'ALBArn', '']
   CreateRDS: !Equals [!Ref 'DatabaseEndpoint', '']
-  CreateAWXWebECRRepository: !Equals [!Ref 'AWXWebECRRepositoryName', '']
-  CreateAWXTaskECRRepository: !Equals [!Ref 'AWXTaskECRRepositoryName', '']
-  CreateAWXRabbitMQECRRepository: !Equals [!Ref 'AWXRabbitMQECRRepositoryName', '']
-  CreateAWXMemcachedECRRepository: !Equals [!Ref 'AWXMemcachedECRRepositoryName', '']
+  CreateAWXECRRepository: !Equals [!Ref 'AWXECRRepositoryName', '']
+  CreateAWXRedisECRRepository: !Equals [!Ref 'AWXRedisECRRepositoryName', '']
   CreateSidecarECRRepository: !Equals [!Ref 'SidecarECRRepositoryName', '']
   CreateDummy: !And [!Not [!Equals [!Ref 'ECSClusterName', '']], !Not [!Equals [!Ref 'ALBArn',
-        '']], !Not [!Equals [!Ref 'DatabaseEndpoint', '']], !Not [!Equals [!Ref 'AWXWebECRRepositoryName',
-        '']], !Not [!Equals [!Ref 'AWXTaskECRRepositoryName', '']], !Not [!Equals [
-        !Ref 'AWXRabbitMQECRRepositoryName', '']], !Not [!Equals [AWXMemcachedECRRepository,
-        '']]]
+        '']], !Not [!Equals [!Ref 'DatabaseEndpoint', '']], !Not [!Equals [!Ref 'AWXECRRepositoryName',
+        '']], !Not [!Equals [AWXRedisECRRepository, '']]]
   3az: !Or [!Equals [!Ref 'NumberOfAvailabilityZones', '3'], !Equals [!Ref 'NumberOfAvailabilityZones',
       '4'], !Equals [!Ref 'NumberOfAvailabilityZones', '5']]
   4az: !Or [!Equals [!Ref 'NumberOfAvailabilityZones', '4'], !Equals [!Ref 'NumberOfAvailabilityZones',
@@ -683,17 +669,11 @@ Resources:
       Subnets: !Ref 'ALBSubnets'
       SecurityGroups:
         - !Ref 'ALBSecurityGroup'
-  AWXTaskECRRepository:
-    Condition: CreateAWXTaskECRRepository
+  AWXECRRepository:
+    Condition: CreateAWXECRRepository
     Type: AWS::ECR::Repository
-  AWXWebECRRepository:
-    Condition: CreateAWXWebECRRepository
-    Type: AWS::ECR::Repository
-  AWXMemcachedECRRepository:
-    Condition: CreateAWXMemcachedECRRepository
-    Type: AWS::ECR::Repository
-  AWXRabbitMQECRRepository:
-    Condition: CreateAWXRabbitMQECRRepository
+  AWXRedisECRRepository:
+    Condition: CreateAWXRedisECRRepository
     Type: AWS::ECR::Repository
   SidecarECRRepository:
     Condition: CreateSidecarECRRepository
@@ -831,19 +811,13 @@ Outputs:
   Cluster:
     Description: A reference to the ECS cluster
     Value: !If [CreateECSCluster, !Ref 'ECSCluster', !Ref 'ECSClusterName']
-  RabbitMQRegistry:
-    Description: A reference to the rabbitmq ECR repository
-    Value: !If [CreateAWXRabbitMQECRRepository, !Ref 'AWXRabbitMQECRRepository', !Ref 'AWXRabbitMQECRRepositoryName']
-  MemcachedRegistry:
-    Description: A reference to the memcached ECR repository
-    Value: !If [CreateAWXMemcachedECRRepository, !Ref 'AWXMemcachedECRRepository',
-      !Ref 'AWXMemcachedECRRepositoryName']
-  AWXWebRegistry:
+  RedisRegistry:
+    Description: A reference to the redis ECR repository
+    Value: !If [CreateAWXRedisECRRepository, !Ref 'AWXRedisECRRepository',
+      !Ref 'AWXRedisECRRepositoryName']
+  AWXRegistry:
     Description: A reference to the awx_web ECR repository
-    Value: !If [CreateAWXWebECRRepository, !Ref 'AWXWebECRRepository', !Ref 'AWXWebECRRepositoryName']
-  AWXTaskRegistry:
-    Description: A reference to the awx_task repository
-    Value: !If [CreateAWXTaskECRRepository, !Ref 'AWXTaskECRRepository', !Ref 'AWXTaskECRRepositoryName']
+    Value: !If [CreateAWXECRRepository, !Ref 'AWXECRRepository', !Ref 'AWXECRRepositoryName']
   SidecarRegistry:
     Description: A reference to the sidecar repository
     Value: !If [CreateSidecarECRRepository, !Ref 'SidecarECRRepository', !Ref 'SidecarECRRepositoryName']

@@ -23,17 +23,11 @@ Parameters:
   Cluster:
     Description: Name of ECS cluster to deploy awx service to
     Type: String
-  AWXWebRegistry:
+  AWXRegistry:
     Description: Name of ECR containing the awx_web image
     Type: String
-  AWXTaskRegistry:
-    Description: Name of ECR containing the awx_task
-    Type: String
-  RabbitMQRegistry:
-    Description: Name of ECR containing the rabbitmq image
-    Type: String
-  MemcachedRegistry:
-    Description: Name of ECR containing the memcached image
+  RedisRegistry:
+    Description: Name of ECR containing the redis image
     Type: String
   SidecarRegistry:
     Description: Name of ECR containing the SideCar image
@@ -111,10 +105,8 @@ Resources:
                   - s3:GetObjectVersion
               - Effect: Allow
                 Resource:
-                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${MemcachedRegistry}'
-                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RabbitMQRegistry}'
-                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXTaskRegistry}'
-                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXWebRegistry}'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RedisRegistry}'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXRegistry}'
                   - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${SidecarRegistry}'
                 Action:
                   - ecr:DescribeImages
@@ -146,14 +138,10 @@ Resources:
         Image: docker.io/amazonlinux:2017.09
         PrivilegedMode: True
         EnvironmentVariables:
-          - Name: AWX_TASK_REPO
-            Value: !Ref 'AWXTaskRegistry'
-          - Name: AWX_WEB_REPO
-            Value: !Ref 'AWXWebRegistry'
-          - Name: MEMCACHED_REPO
-            Value: !Ref 'MemcachedRegistry'
-          - Name: RABBITMQ_REPO
-            Value: !Ref 'RabbitMQRegistry'
+          - Name: AWX_REPO
+            Value: !Ref 'AWXRegistry'
+          - Name: REDIS_REPO
+            Value: !Ref 'RedisRegistry'
           - Name: SIDECAR_REPO
             Value: !Ref 'SidecarRegistry'
           - Name: AWX_VERSION
@@ -204,10 +192,8 @@ Resources:
                 - sleep 240
                 # Get container tagging info
                 - export ACCOUNT_ID=$(echo ${CODEBUILD_BUILD_ARN} | awk -F':' '{print $5}')
-                - export RABBITMQ_TAG=$(docker image ls --all | grep redis | awk '{print $2}' | cut -d ':' -f 2)
-                - export RABBITMQ_IMAGE=$(docker image ls --all | grep redis | awk '{print $1}')
-                - export MEMCACHED_TAG=$(docker image ls --all | grep awx | awk '{print $2}' | cut -d ':' -f 2)
-                - export MEMCACHED_IMAGE=$(docker image ls --all | grep awx | awk '{print $1}')
+                - export REDIS_TAG=$(docker image ls --all | grep awx | awk '{print $2}' | cut -d ':' -f 2)
+                - export REDIS_IMAGE=$(docker image ls --all | grep awx | awk '{print $1}')
                 # Make a Sidecar container to inject created files for mounting
                 - mkdir sidecar
                 - mkdir sidecar/tmp
@@ -236,9 +222,6 @@ Resources:
                 - >
                   docker tag ansible/awx:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_TASK_REPO}:${AWX_VERSION} &&
                   docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_TASK_REPO}:${AWX_VERSION}
-                - >
-                  docker tag ${RABBITMQ_IMAGE}:${RABBITMQ_TAG} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${RABBITMQ_REPO}:${AWX_VERSION} &&
-                  docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${RABBITMQ_REPO}:${AWX_VERSION}
                 - >
                   docker tag sidecar:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SIDECAR_REPO}:${AWX_VERSION} &&
                   docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SIDECAR_REPO}:${AWX_VERSION}
@@ -381,10 +364,8 @@ Resources:
       # Logging
       loglevel: 'debug'
       # For deletion of the container images.
-      AWXTaskRegistry: !Ref AWXTaskRegistry
-      AWXWebRegistry: !Ref AWXWebRegistry
-      MemcachedRegistry: !Ref MemcachedRegistry
-      RabbitMQRegistry: !Ref  RabbitMQRegistry
+      AWXRegistry: !Ref AWXRegistry
+      RedisRegistry: !Ref RedisRegistry
       SidecarRegistry: !Ref  SidecarRegistry
       # cfn_signal_url: is part of the event by default hence missing here
       # cfn_stack_id: is part of the event by default
@@ -430,10 +411,8 @@ Resources:
             Resource: !GetAtt AWXCodeBuildProject.Arn
           - Effect: Allow
             Resource:
-              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${MemcachedRegistry}'
-              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RabbitMQRegistry}'
-              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXTaskRegistry}'
-              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXWebRegistry}'
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RedisRegistry}'
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXRegistry}'
               - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${SidecarRegistry}'
             Action:
               - ecr:DescribeImages
@@ -495,7 +474,7 @@ Resources:
         - Name: awxweb
           Hostname: awxweb
           Essential: true
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXWebRegistry}:${AWXVersion}
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXRegistry}:${AWXVersion}
           Memory: 1024
           PortMappings:
             - ContainerPort: 8052
@@ -508,8 +487,7 @@ Resources:
               awslogs-stream-prefix: awxweb
           Links:
             - "awx:awx"
-            - "rabbitmq:rabbitmq"
-            - "memcached:memcached"
+            - "redis:redis"
           VolumesFrom:
             - SourceContainer: "sidecar"
           Environment:
@@ -531,20 +509,10 @@ Resources:
               Value: "5432"
             - Name: DATABASE_HOST
               Value: !Ref 'DatabaseEndpoint'
-            - Name: RABBITMQ_USER
-              Value: "guest"
-            - Name: RABBITMQ_PASSWORD
-              Value: "awxpass"
-            - Name: RABBITMQ_HOST
-              Value: "rabbitmq"
-            - Name: RABBITMQ_PORT
-              Value: "5672"
-            - Name: RABBITMQ_VHOST
-              Value: "awx"
-            - Name: MEMCACHED_HOST
-              Value: "memcached"
-            - Name: MEMCACHED_PORT
-              Value: "11211"
+            # - Name: MEMCACHED_HOST    Not sure what to put here for redis
+            #   Value: "memcached"
+            # - Name: MEMCACHED_PORT
+            #   Value: "11211"
             - Name: AWX_ADMIN_USER
               Value: !Ref AWXAdminUsername
             - Name: AWX_ADMIN_PASSWORD
@@ -552,7 +520,7 @@ Resources:
         - Name: redis
           Hostname: redis
           Essential: true
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RabbitMQRegistry}:${AWXVersion}
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RedisRegistry}:${AWXVersion}
           Memory: 1024
           PortMappings:
             - ContainerPort: 6379
@@ -565,7 +533,7 @@ Resources:
         - Name: awx
           Hostname: awx
           Essential: true
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXTaskRegistry}:${AWXVersion}
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXRegistry}:${AWXVersion}
           Memory: 2048
           PortMappings:
             - ContainerPort: 8052
