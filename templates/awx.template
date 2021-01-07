@@ -223,15 +223,6 @@ Resources:
                 - |
                   echo 'CMD exec /bin/bash -c "trap : TERM INT; sleep infinity & wait"' >> sidecar/Dockerfile
                 - docker build -t sidecar:${AWX_VERSION} sidecar
-                - mkdir rediscar
-                - mkdir rediscar/tmp
-                - cp -drpu /tmp/awxcompose/ rediscar/tmp/
-                - echo "changes"
-                - echo "FROM redis" > rediscar/Dockerfile
-                - echo "COPY --chown=1000 /tmp/awxcompose/redis.conf /usr/local/etc/redis/redis.conf" >> rediscar/Dockerfile
-                - |
-                  echo 'CMD exec /bin/bash -c "trap : TERM INT; sleep infinity & wait"' >> rediscar/Dockerfile
-                - docker build -t rediscar:${AWX_VERSION} rediscar
                 # Debug info
                 # Contextual info for other debug data
                 - docker container ls --all
