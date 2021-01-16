@@ -1,0 +1,832 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Deploys a AWX Cluster
+Parameters:
+  QSS3BucketName:
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: Quick Start bucket name can include numbers, lowercase
+      letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
+      (-).
+    Default: aws-quickstart-test16
+    Description: S3 bucket name for the Quick Start assets. Quick Start bucket name
+      can include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).
+    Type: String
+  QSS3KeyPrefix:
+    AllowedPattern: ^[0-9a-zA-Z-/]*$
+    ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters,
+      uppercase letters, hyphens (-), and forward slash (/).
+    Default: scripts/
+    Description: S3 key prefix for the Quick Start assets. Quick Start key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-), and
+      forward slash (/).
+    Type: String
+  AWXRegistry:
+    Description: Name of ECR containing the awx
+    Type: String
+    Default: awx
+  RedisRegistry:
+    Description: Name of ECR containing the redis image
+    Type: String
+    Default: redis
+  SidecarRegistry:
+    Description: Name of ECR containing the SideCar image
+    Type: String
+    Default: sidecar
+  AWXVersion:
+    Description: Which version of AWX to use
+    Type: String
+    Default: 16.0.0
+    AllowedValues:
+      - 16.0.0
+  AWXGitHubRepo:
+    Description: Which github should we use as the source for the build
+    Type: String
+    Default: https://github.com/seankopp/awx.git
+  MasterUserPassword:
+    Description: Master user database Password. Only applicable if DatabaseEndpoint
+      is blank
+    Type: String
+    NoEcho: 'true'
+    Default: awxpassw
+  MasterUsername:
+    Description: Master database Username. Only applicable if DatabaseEndpoint is
+      blank
+    Type: String
+    Default: awx
+  AWXAdminPassword:
+    Description: Password for the AWX admin user. Required
+      is blank
+    Type: String
+    NoEcho: 'true'
+    Default: password
+  AWXAdminUsername:
+    Description: AWX Admin user name
+    Type: String
+    Default: admin
+  DatabaseEndpoint:
+    Description: Endpoint for postgres database
+    Type: String
+    Default: awx.ce2h8bicecub.us-east-2.rds.amazonaws.com
+  VPC:
+    Description: VPC
+    Type: AWS::EC2::VPC::Id
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the ECS instances.
+  SubnetId:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Select at two subnets in your selected VPC.
+  DesiredCapacity:
+    Type: Number
+    Default: '1'
+    Description: Number of instances to launch in your ECS cluster.
+  MaxSize:
+    Type: Number
+    Default: '1'
+    Description: Maximum number of instances that can be launched in your ECS cluster.
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: m4.large
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t2.large
+      - m3.medium
+      - m3.large
+      - m3.xlarge
+      - m3.2xlarge
+      - m4.large
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+      - c4.large
+      - c4.xlarge
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
+      - c3.large
+      - c3.xlarge
+      - c3.2xlarge
+      - c3.4xlarge
+      - c3.8xlarge
+      - r3.large
+      - r3.xlarge
+      - r3.2xlarge
+      - r3.4xlarge
+      - r3.8xlarge
+      - i2.xlarge
+      - i2.2xlarge
+      - i2.4xlarge
+      - i2.8xlarge
+    ConstraintDescription: Please choose a valid instance type.
+Mappings:
+  AWSRegionToAMI:
+    us-east-1:
+      AMIID: ami-09bee01cc997a78a6
+    us-east-2:
+      AMIID: ami-0a9e12068cb98a01d
+    us-west-1:
+      AMIID: ami-0fa6c8d131a220017
+    us-west-2:
+      AMIID: ami-078c97cf1cefd1b38
+    eu-west-1:
+      AMIID: ami-0c9ef930279337028
+    eu-central-1:
+      AMIID: ami-065c1e34da68f2b02
+    ap-northeast-1:
+      AMIID: ami-02265963d1614d04d
+    ap-southeast-1:
+      AMIID: ami-0b68661b29b9e058c
+    ap-southeast-2:
+      AMIID: ami-00e4b147599c13588
+Conditions:
+  GovCloudCondition: !Equals [!Ref 'AWS::Region', us-gov-west-1]
+Resources:
+  mockresource:
+    Type: AWS::S3::Bucket
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+      Policies:
+        - PolicyName: ecs-service
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Resource:
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*:*'
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+              - Effect: Allow
+                Resource:
+                  - !Sub 'arn:aws:s3:::${QSS3BucketName}/scripts/lambda_codebuild.zip'
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+              - Effect: Allow
+                Resource:
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RedisRegistry}'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXRegistry}'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${SidecarRegistry}'
+                Action:
+                  - ecr:DescribeImages
+                  - ecr:ListImages
+                  - ecr:PutImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:GetRepositoryPolicy
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+              - Effect: Allow
+                Resource: "*"
+                Action:
+                  - ecr:GetAuthorizationToken
+  AWXCodeBuildProject:
+    DependsOn: [ CopyZips ]
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub 'awx-build-${AWS::StackName}'
+      Description: Builds the AWX container images to ECR
+      ServiceRole: !GetAtt 'CodeBuildRole.Arn'
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: docker.io/amazonlinux:2017.09
+        PrivilegedMode: True
+        EnvironmentVariables:
+          - Name: AWX_REPO
+            Value: !Ref 'AWXRegistry'
+          - Name: REDIS_REPO
+            Value: !Ref 'RedisRegistry'
+          - Name: SIDECAR_REPO
+            Value: !Ref 'SidecarRegistry'
+          - Name: AWX_VERSION
+            Value: !Ref 'AWXVersion'
+          - Name: pg_hostname
+            Value: !Ref 'DatabaseEndpoint'
+          - Name: pg_password
+            Value: !Ref MasterUserPassword
+          - Name: pg_username
+            Value: !Ref MasterUsername
+          - Name: awx_username
+            Value: !Ref AWXAdminUsername
+          - Name: awx_password
+            Value: !Ref AWXAdminPassword
+          - Name: cfn_signal_url
+            Value: 'placeholder'
+          - Name: cfn_stack_id
+            Value: 'placeholder'
+          - Name: cfn_logical_resource_id
+            Value: 'placeholder'
+          - Name: cfn_request_id
+            Value: 'placeholder'
+          - Name: AWS_REGION
+            Value: !Ref AWS::Region
+          - Name: ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+
+      Source:
+        Location:
+          !Join
+            - '#'
+            - - !Ref 'AWXGitHubRepo'
+              - !Ref 'AWXVersion'
+        Type: GITHUB
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              commands:
+                - yum install -y git gcc docker python27-pip python27-devel libffi-devel openssl-devel curl util-linux
+                - curl -L "https://github.com/docker/compose/releases/download/1.27.4/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+                - chmod +x /usr/local/bin/docker-compose
+                - /usr/bin/pip install -U docker ansible awscli
+                - service docker start
+                - $(aws ecr get-login --no-include-email)
+                - set
+            build:
+              commands:
+                - git checkout devel
+                - cd installer/
+                - sed -i "s/^dockerhub_version=latest/dockerhub_version=$AWS_VERSION/g" inventory
+                - echo ansible-playbook -i inventory -e awx_version="$AWX_VERSION" -e pg_hostname="$pg_hostname" -e pg_username="$pg_username" -e pg_password="$pg_password" -e pg_database="awx" -e pg_port=5432 -e default_admin_user="$awx_username" -e default_admin_password="$awx_password" -e admin_user="$awx_username" -e admin_password="$awx_password" -e "ansible_python_interpreter=/usr/bin/python" install.yml
+                - ansible-playbook -v -i inventory -e awx_version="$AWX_VERSION" -e pg_hostname="$pg_hostname" -e pg_username="$pg_username" -e pg_password="$pg_password" -e pg_database="awx" -e pg_port=5432 -e default_admin_user="$awx_username" -e default_admin_password="$awx_password" -e admin_user="$awx_username" -e admin_password="$awx_password" -e "ansible_python_interpreter=/usr/bin/python" install.yml
+                # Allow time for the DB Setup Scripts to complete
+                #- sleep 60
+                # Get container tagging info
+                - export ACCOUNT_ID=$(echo ${CODEBUILD_BUILD_ARN} | awk -F':' '{print $5}')
+                #- export REDIS_TAG=$(docker image ls --all | grep redis | awk '{print $2}' | cut -d ':' -f 2)
+                #- export REDIS_IMAGE=$(docker image ls --all | grep redis | awk '{print $1}')
+                # Make a Sidecar container to inject created files for mounting
+                - mkdir sidecar
+                - mkdir sidecar/tmp
+                - cp -drpu ~/.awx/awxcompose/ sidecar/tmp/
+                - echo "changes"
+                - echo "FROM ansible/awx:${AWX_VERSION}" > sidecar/Dockerfile
+                - echo "VOLUME /etc/tower/" >> sidecar/Dockerfile
+                - echo "COPY --chown=1000 /tmp/awxcompose/credentials.py /etc/tower/conf.d/credentials.py" >> sidecar/Dockerfile
+                - echo "COPY --chown=1000 /tmp/awxcompose/SECRET_KEY /etc/tower/SECRET_KEY" >> sidecar/Dockerfile
+                - echo "COPY --chown=1000 /tmp/awxcompose/environment.sh /etc/tower/conf.d/environment.sh" >> sidecar/Dockerfile
+                - echo "COPY /tmp/awxcompose/nginx.conf /etc/nginx/nginx.conf" >> sidecar/Dockerfile
+
+                - |
+                  echo 'CMD exec /bin/bash -c "trap : TERM INT; sleep infinity & wait"' >> sidecar/Dockerfile
+                - docker build -t sidecar:${AWX_VERSION} sidecar
+
+
+                - mkdir -p redis/tmp
+                - cp -drpu ~/.awx/awxcompose/ redis/tmp/
+                - echo "changes"
+                - echo "FROM redis" > redis/Dockerfile
+                - echo "COPY --chown=1000 /tmp/awxcompose/redis.conf /usr/local/etc/redis/redis.conf" >> redis/Dockerfile
+                - |
+                  echo 'CMD ["redis-server", "/usr/local/etc/redis/redis.conf"]' >> redis/Dockerfile
+                - docker build -t redis:${AWX_VERSION} redis
+                # Debug info
+                # Contextual info for other debug data
+                - docker container ls --all
+                - docker image ls --all
+                # Full logs of each container
+                #- for i in $(docker ps -q); do docker logs $i; done
+                # Docker inspect
+                #- for i in $(docker ps -q); do echo "CONTAINER $i\\n========="; docker inspect $i; echo "========="; done
+
+                # Push containers to their respective repositories
+                - >
+                  docker tag ansible/awx:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_REPO}:${AWX_VERSION} &&
+                  docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${AWX_REPO}:${AWX_VERSION}
+                - >
+                  docker tag redis:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/redis:${AWX_VERSION} &&
+                  docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/redis:${AWX_VERSION}
+                - >
+                  docker tag sidecar:${AWX_VERSION} ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SIDECAR_REPO}:${AWX_VERSION} &&
+                  docker push ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SIDECAR_REPO}:${AWX_VERSION}
+            post_build:
+              commands:
+                # FIXME: Need to trap and only execute this if the Build is passing.
+                - echo "Signal back if we have gotten this far"
+                # FIXME: Wanted to add a UUID but then I have an issue with storing these somewhere.
+                - export UUID=1233244324
+                - |
+                  if [ $CODEBUILD_BUILD_SUCCEEDING -eq 1 ]
+                  then
+                    curl -X PUT -H 'Content-Type:' -d "{\"StackId\":\"$cfn_stack_id\", \"RequestId\":\"$cfn_request_id\", \"LogicalResourceId\":\"$cfn_logical_resource_id\", \"PhysicalResourceId\":\"$UUID\", \"Status\":\"SUCCESS\"}" "$cfn_signal_url"
+                  else
+                    # Add Reason here and test.
+                    curl -X PUT -H 'Content-Type:' -d "{\"StackId\":\"$cfn_stack_id\", \"RequestId\":\"$cfn_request_id\", \"LogicalResourceId\":\"$cfn_logical_resource_id\", \"PhysicalResourceId\":\"$UUID\", \"Status\":\"FAILED\"}" "$cfn_signal_url"
+                  fi
+      # FIXME: get this close to the actual time things take with 5 minute margin added for safety
+      TimeoutInMinutes: 60
+  CopyZipsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Path: /
+      Policies:
+        - PolicyName: lambda-copier
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${QSS3BucketName}/${QSS3KeyPrefix}*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${LambdaZipsBucket}/${QSS3KeyPrefix}*'
+  CopyZipsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Copies objects from a source S3 bucket to a destination
+      Handler: index.handler
+      Runtime: python2.7
+      Role: !GetAtt 'CopyZipsRole.Arn'
+      Timeout: 240
+      Code:
+        ZipFile: !Join
+          - "\n"
+          - - import json
+            - import logging
+            - import threading
+            - import boto3
+            - import cfnresponse
+            - ''
+            - ''
+            - 'def copy_objects(source_bucket, dest_bucket, prefix, objects):'
+            - '    s3 = boto3.client(''s3'')'
+            - '    for o in objects:'
+            - '        key = prefix + o'
+            - '        copy_source = {'
+            - '            ''Bucket'': source_bucket,'
+            - '            ''Key'': key'
+            - '        }'
+            - '        print(''copy_source: %s'' % copy_source)'
+            - '        print(''dest_bucket = %s''%dest_bucket)'
+            - '        print(''key = %s'' %key)'
+            - '        s3.copy_object(CopySource=copy_source, Bucket=dest_bucket,
+              Key=key)'
+            - ''
+            - ''
+            - 'def delete_objects(bucket, prefix, objects):'
+            - '    s3 = boto3.client(''s3'')'
+            - '    objects = {''Objects'': [{''Key'': prefix + o} for o in objects]}'
+            - '    s3.delete_objects(Bucket=bucket, Delete=objects)'
+            - ''
+            - ''
+            - 'def timeout(event, context):'
+            - '    logging.error(''Execution is about to time out, sending failure
+              response to CloudFormation'')'
+            - '    cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)'
+            - ''
+            - ''
+            - 'def handler(event, context):'
+            - '    # make sure we send a failure to CloudFormation if the function
+              is going to timeout'
+            - '    timer = threading.Timer((context.get_remaining_time_in_millis()
+              / 1000.00) - 0.5, timeout, args=[event, context])'
+            - '    timer.start()'
+            - ''
+            - '    print(''Received event: %s'' % json.dumps(event))'
+            - '    status = cfnresponse.SUCCESS'
+            - '    try:'
+            - '        source_bucket = event[''ResourceProperties''][''SourceBucket'']'
+            - '        dest_bucket = event[''ResourceProperties''][''DestBucket'']'
+            - '        prefix = event[''ResourceProperties''][''Prefix'']'
+            - '        objects = event[''ResourceProperties''][''Objects'']'
+            - '        if event[''RequestType''] == ''Delete'':'
+            - '            delete_objects(dest_bucket, prefix, objects)'
+            - '        else:'
+            - '            copy_objects(source_bucket, dest_bucket, prefix, objects)'
+            - '    except Exception as e:'
+            - '        logging.error(''Exception: %s'' % e, exc_info=True)'
+            - '        status = cfnresponse.FAILED'
+            - '    finally:'
+            - '        timer.cancel()'
+            - '        cfnresponse.send(event, context, status, {}, None)'
+            - ''
+  LambdaZipsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      Tags: []
+  CopyZips:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt 'CopyZipsFunction.Arn'
+      DestBucket: !Ref 'LambdaZipsBucket'
+      SourceBucket: !Ref 'QSS3BucketName'
+      Prefix: !Ref 'QSS3KeyPrefix'
+      Objects:
+        - lambda_codebuild.zip
+  BuildContainers:
+    Type: Custom::BuildContainers
+    Properties:
+      # Different version cause a rebuild.
+      UpdateMe: !Ref AWXVersion
+      ServiceToken: !GetAtt BuildContainersLambda.Arn
+      BuildProjectName: !Ref AWXCodeBuildProject
+      # Logging
+      loglevel: 'debug'
+      # For deletion of the container images.
+      AWXRegistry: !Ref AWXRegistry
+      RedisRegistry: !Ref RedisRegistry
+      SidecarRegistry: !Ref SidecarRegistry
+      # cfn_signal_url: is part of the event by default hence missing here
+      # cfn_stack_id: is part of the event by default
+      # cfn_request_id: also part of the event
+      # cfn_logical_resource_id: also part of the event
+      # Lambda function passes the above into the build project when invoking StartBuild
+  BuildContainersLambda:
+    DependsOn: [ CopyZips ]
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket: !Ref LambdaZipsBucket
+        S3Key:
+          Fn::Join:
+            - ""
+            - - !Ref QSS3KeyPrefix
+              - "lambda_codebuild.zip"
+      Handler: !Sub "lambda_codebuild.lambda_handler"
+      Runtime: python3.6
+      Timeout: 300
+      Role: !GetAtt BuildContainersLambdaExecutionRole.Arn
+  BuildContainersLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - codebuild:StartBuild
+            Resource: !GetAtt AWXCodeBuildProject.Arn
+          - Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RedisRegistry}'
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXRegistry}'
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${SidecarRegistry}'
+            Action:
+              - ecr:DescribeImages
+              - ecr:ListImages
+              - ecr:BatchGetImage
+              - ecr:BatchDeleteImage
+          - Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+  EcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS Security Group
+      VpcId: !Ref 'VPC'
+  EcsSecurityGroupHTTPinbound:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref 'EcsSecurityGroup'
+      IpProtocol: tcp
+      FromPort: '80'
+      ToPort: '80'
+      CidrIp: 0.0.0.0/0
+
+  EcsSecurityGroupSSHinbound:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref 'EcsSecurityGroup'
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      CidrIp: 0.0.0.0/0
+  EcsSecurityGroupALBports:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref 'EcsSecurityGroup'
+      IpProtocol: tcp
+      FromPort: '31000'
+      ToPort: '61000'
+      SourceSecurityGroupId: !Ref 'EcsSecurityGroup'
+  CloudwatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['-', [ECSLogGroup, !Ref 'AWS::StackName']]
+      RetentionInDays: 14
+  taskdefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Join ['', [!Ref 'AWS::StackName', -ecs-demo-app]]
+      ContainerDefinitions:
+      - Name: redis
+        Essential: 'true'
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RedisRegistry}:${AWXVersion}
+        Memory: '512'
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref 'CloudwatchLogsGroup'
+            awslogs-region: !Ref 'AWS::Region'
+            awslogs-stream-prefix: ecs-demo-app
+        MountPoints:
+        - ContainerPath: /var/run/redis
+          SourceVolume: my-vol
+      - Name: web
+        Essential: 'true'
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXRegistry}:${AWXVersion}
+        Memory: '2048'
+        Hostname: awxweb
+        Links:
+          - "redis:redis"
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref 'CloudwatchLogsGroup'
+            awslogs-region: !Ref 'AWS::Region'
+            awslogs-stream-prefix: ecs-demo-app
+        MountPoints:
+        - ContainerPath: /var/run/redis
+          SourceVolume: my-vol
+        PortMappings:
+        - ContainerPort: 8052
+          HostPort: 80
+      - Name: task
+        Essential: 'true'
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXRegistry}:${AWXVersion}
+        Memory: '2048'
+        Hostname: awx
+        Links:
+          - "redis:redis"
+          - "web:web"
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref 'CloudwatchLogsGroup'
+            awslogs-region: !Ref 'AWS::Region'
+            awslogs-stream-prefix: ecs-demo-app
+        Environment:
+          - Name: SUPERVISOR_WEB_CONFIG_PATH
+            Value: /etc/supervisord.conf
+        MountPoints:
+        - ContainerPath: /var/run/redis
+          SourceVolume: my-vol
+      Volumes:
+      - Name: my-vol
+  ECSALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ECSALB
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: '30'
+      Subnets: !Ref 'SubnetId'
+      SecurityGroups: [!Ref 'EcsSecurityGroup']
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn: ECSServiceRole
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref 'ECSTG'
+      LoadBalancerArn: !Ref 'ECSALB'
+      Port: '80'
+      Protocol: HTTP
+  ECSALBListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    DependsOn: ALBListener
+    Properties:
+      Actions:
+      - Type: forward
+        TargetGroupArn: !Ref 'ECSTG'
+      Conditions:
+      - Field: path-pattern
+        Values: [/]
+      ListenerArn: !Ref 'ALBListener'
+      Priority: 1
+  ECSTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: ECSALB
+    Properties:
+      HealthCheckIntervalSeconds: 300
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Name: ECSTG
+      Port: 80
+      Matcher:
+        HttpCode: 200-499
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref 'VPC'
+  ECSAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: !Ref 'SubnetId'
+      LaunchConfigurationName: !Ref 'ContainerInstances'
+      MinSize: '1'
+      MaxSize: !Ref 'MaxSize'
+      DesiredCapacity: !Ref 'DesiredCapacity'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: 'true'
+  ContainerInstances:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !FindInMap [AWSRegionToAMI, !Ref 'AWS::Region', AMIID]
+      SecurityGroups: [!Ref 'EcsSecurityGroup']
+      InstanceType: !Ref 'InstanceType'
+      IamInstanceProfile: !Ref 'EC2InstanceProfile'
+      KeyName: !Ref 'KeyName'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource ECSAutoScalingGroup --region ${AWS::Region}
+  service:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      Cluster: !Ref 'ECSCluster'
+      DesiredCount: '1'
+      LoadBalancers:
+      - ContainerName: web
+        ContainerPort: '8052'
+        TargetGroupArn: !Ref 'ECSTG'
+      Role: !Ref 'ECSServiceRole'
+      TaskDefinition: !Ref 'taskdefinition'
+  ECSServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['elasticloadbalancing:DeregisterInstancesFromLoadBalancer', 'elasticloadbalancing:DeregisterTargets',
+              'elasticloadbalancing:Describe*', 'elasticloadbalancing:RegisterInstancesWithLoadBalancer',
+              'elasticloadbalancing:RegisterTargets', 'ec2:Describe*', 'ec2:AuthorizeSecurityGroupIngress']
+            Resource: '*'
+          - Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RedisRegistry}'
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AWXRegistry}'
+              - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${SidecarRegistry}'
+            Action:
+              - ecr:DescribeImages
+              - ecr:ListImages
+              - ecr:PutImage
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:GetDownloadUrlForLayer
+              - ecr:GetRepositoryPolicy
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+
+  ServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: service
+    Properties:
+      MaxCapacity: 2
+      MinCapacity: 1
+      ResourceId: !Join ['', [service/, !Ref 'ECSCluster', /, !GetAtt [service, Name]]]
+      RoleARN: !GetAtt [AutoscalingRole, Arn]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+  ServiceScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: AStepPolicy
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref 'ServiceScalingTarget'
+      StepScalingPolicyConfiguration:
+        AdjustmentType: PercentChangeInCapacity
+        Cooldown: 60
+        MetricAggregationType: Average
+        StepAdjustments:
+        - MetricIntervalLowerBound: 0
+          ScalingAdjustment: 200
+  ALB500sAlarmScaleUp:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: '1'
+      Statistic: Average
+      Threshold: '10'
+      AlarmDescription: Alarm if our ALB generates too many HTTP 500s.
+      Period: '60'
+      AlarmActions: [!Ref 'ServiceScalingPolicy']
+      Namespace: AWS/ApplicationELB
+      Dimensions:
+        - Name: LoadBalancer
+          Value: !GetAtt
+            - ECSALB
+            - LoadBalancerFullName
+      ComparisonOperator: GreaterThanThreshold
+      MetricName: HTTPCode_ELB_5XX_Count
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['ecs:CreateCluster', 'ecs:DeregisterContainerInstance', 'ecs:DiscoverPollEndpoint',
+              'ecs:Poll', 'ecs:RegisterContainerInstance', 'ecs:StartTelemetrySession',
+              'ecs:Submit*', 'logs:CreateLogStream', 'logs:PutLogEvents']
+            Resource: '*'
+  AutoscalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [application-autoscaling.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: service-autoscaling
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['application-autoscaling:*', 'cloudwatch:DescribeAlarms', 'cloudwatch:PutMetricAlarm',
+              'ecs:DescribeServices', 'ecs:UpdateService']
+            Resource: '*'
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [!Ref 'EC2Role']
+Outputs:
+  ecsservice:
+    Value: !Ref 'service'
+  ecscluster:
+    Value: !Ref 'ECSCluster'
+  ECSALB:
+    Description: Your ALB DNS URL
+    Value: !Join ['', [!GetAtt [ECSALB, DNSName]]]
+  taskdef:
+    Value: !Ref 'taskdefinition'
