@@ -1,1 +1,4 @@
 https://github.com/ansible/awx/issues/6539
+awx-manage migrate --noinput
+
+awx-manage createsuperuser --username admin
