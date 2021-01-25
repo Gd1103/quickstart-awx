@@ -6,7 +6,7 @@ Parameters:
     ConstraintDescription: Quick Start bucket name can include numbers, lowercase
       letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
       (-).
-    Default: awx-test
+    Default: aws-quickstart-test16
     Description: S3 bucket name for the Quick Start assets. Quick Start bucket name
       can include numbers, lowercase letters, uppercase letters, and hyphens (-).
       It cannot start or end with a hyphen (-).
@@ -489,7 +489,7 @@ Resources:
       LoadBalancers:
         - ContainerName: web
           ContainerPort: 8052
-          TargetGroupArn: !Ref TargetGroup 
+          TargetGroupArn: !Ref TargetGroup
   ContainerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -501,7 +501,7 @@ Resources:
       ContainerDefinitions:
       - Name: redis
         Essential: 'true'
-        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/redis:16.0.0
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${RedisRegistry}:${AWXVersion}
         Memory: '512'
         LogConfiguration:
           LogDriver: awslogs
@@ -514,7 +514,7 @@ Resources:
           SourceVolume: my-vol
       - Name: web
         Essential: 'true'
-        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/awx:16.0.0
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXRegistry}:${AWXVersion}
         Memory: '2048'
         Hostname: awxweb
         Links:
@@ -535,7 +535,7 @@ Resources:
           HostPort: 80
       - Name: task
         Essential: 'true'
-        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/awx:16.0.0
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${AWXRegistry}:${AWXVersion}
         Memory: '2048'
         Hostname: awx
         Links:
@@ -558,7 +558,7 @@ Resources:
       - Name: sidecar
         Hostname: sidecar
         Essential: 'true'
-        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/sidecar:16.0.0
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${SidecarRegistry}:${AWXVersion}
         Memory: '1024'
         LogConfiguration:
           LogDriver: awslogs
@@ -574,7 +574,7 @@ Resources:
       VpcId: !Ref VPC
       Port: 80
       Protocol: HTTP
-      Matcher: 
+      Matcher:
         HttpCode: 200-499
       HealthCheckIntervalSeconds: 10
       HealthCheckPath: /
@@ -592,7 +592,7 @@ Resources:
         - "/"
       Actions:
       - Type: forward
-        TargetGroupArn: 
+        TargetGroupArn:
           Ref: TargetGroup
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener

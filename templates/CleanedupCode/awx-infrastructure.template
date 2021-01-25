@@ -29,7 +29,7 @@ Parameters:
   DatabaseEndpoint:
     Description: Endpoint for postgres database, leave blank to create a new RDS database
     Type: String
-    Default: awx-test.cnjdk6gtaegw.us-west-2.rds.amazonaws.com
+    Default: 'awx.ce2h8bicecub.us-east-2.rds.amazonaws.com'
   InstanceType:
     Description: Which instance type should we use to build the ECS cluster? Only
       applicable if ECSClusterName is blank
@@ -801,7 +801,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: !Ref 'PortNumber'
           ToPort: !Ref 'PortNumber'
-          CidrIp: '172.17.0.0/24'
+          CidrIp: '172.31.0.0/24'
       SecurityGroupEgress:
         - IpProtocol: '-1'
           FromPort: -1
